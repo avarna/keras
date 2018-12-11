@@ -3,21 +3,22 @@ from __future__ import print_function
 import pytest
 import os
 import numpy as np
+from numpy.testing import assert_allclose
 
 from keras import backend as K
 import keras
 from keras.models import Sequential
 from keras.layers import Dense, Activation
 from keras.utils import np_utils
-from keras.utils.test_utils import get_test_data, keras_test
+from keras.utils.test_utils import get_test_data
 from keras.models import model_from_json, model_from_yaml
 from keras import losses
-from keras.engine.training import _make_batches
+from keras.engine.training_utils import make_batches
 
 
 input_dim = 16
 num_hidden = 8
-num_class = 4
+num_classes = 4
 batch_size = 32
 epochs = 1
 
@@ -33,14 +34,13 @@ def in_tmpdir(tmpdir):
     assert not tmpdir.listdir()
 
 
-@keras_test
 def test_sequential_pop():
     model = Sequential()
     model.add(Dense(num_hidden, input_dim=input_dim))
-    model.add(Dense(num_class))
+    model.add(Dense(num_classes))
     model.compile(loss='mse', optimizer='sgd')
     x = np.random.random((batch_size, input_dim))
-    y = np.random.random((batch_size, num_class))
+    y = np.random.random((batch_size, num_classes))
     model.fit(x, y, epochs=1)
     model.pop()
     assert len(model.layers) == 1
@@ -60,13 +60,12 @@ def _get_test_data():
                                                          num_test=test_samples,
                                                          input_shape=(input_dim,),
                                                          classification=True,
-                                                         num_classes=4)
+                                                         num_classes=num_classes)
     y_test = np_utils.to_categorical(y_test)
     y_train = np_utils.to_categorical(y_train)
     return (x_train, y_train), (x_test, y_test)
 
 
-@keras_test
 def test_sequential_fit_generator():
     (x_train, y_train), (x_test, y_test) = _get_test_data()
 
@@ -78,18 +77,20 @@ def test_sequential_fit_generator():
         i = 0
         while 1:
             if train:
-                yield (x_train[i * batch_size: (i + 1) * batch_size], y_train[i * batch_size: (i + 1) * batch_size])
+                yield (x_train[i * batch_size: (i + 1) * batch_size],
+                       y_train[i * batch_size: (i + 1) * batch_size])
             else:
-                yield (x_test[i * batch_size: (i + 1) * batch_size], y_test[i * batch_size: (i + 1) * batch_size])
+                yield (x_test[i * batch_size: (i + 1) * batch_size],
+                       y_test[i * batch_size: (i + 1) * batch_size])
             i += 1
             i = i % max_batch_index
 
     model = Sequential()
     model.add(Dense(num_hidden, input_shape=(input_dim,)))
     model.add(Activation('relu'))
-    model.add(Dense(num_class))
+    model.add(Dense(num_classes))
     model.pop()
-    model.add(Dense(num_class))
+    model.add(Dense(num_classes))
     model.add(Activation('softmax'))
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
 
@@ -103,7 +104,6 @@ def test_sequential_fit_generator():
     model.evaluate(x_train, y_train)
 
 
-@keras_test
 def test_sequential(in_tmpdir):
     (x_train, y_train), (x_test, y_test) = _get_test_data()
 
@@ -111,7 +111,7 @@ def test_sequential(in_tmpdir):
     def data_generator(x, y, batch_size=50):
         index_array = np.arange(len(x))
         while 1:
-            batches = _make_batches(len(x_test), batch_size)
+            batches = make_batches(len(x_test), batch_size)
             for batch_index, (batch_start, batch_end) in enumerate(batches):
                 batch_ids = index_array[batch_start:batch_end]
                 x_batch = x[batch_ids]
@@ -121,22 +121,28 @@ def test_sequential(in_tmpdir):
     model = Sequential()
     model.add(Dense(num_hidden, input_shape=(input_dim,)))
     model.add(Activation('relu'))
-    model.add(Dense(num_class))
+    model.add(Dense(num_classes))
     model.add(Activation('softmax'))
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
 
-    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1, validation_data=(x_test, y_test))
-    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=2, validation_split=0.1)
+    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1,
+              validation_data=(x_test, y_test))
+    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=2,
+              validation_split=0.1)
     model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=0)
-    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1, shuffle=False)
+    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1,
+              shuffle=False)
 
     model.train_on_batch(x_train[:32], y_train[:32])
 
     loss = model.evaluate(x_test, y_test)
 
-    prediction = model.predict_generator(data_generator(x_test, y_test), 1, max_queue_size=2, verbose=1)
-    gen_loss = model.evaluate_generator(data_generator(x_test, y_test, 50), 1, max_queue_size=2)
-    pred_loss = K.eval(K.mean(losses.get(model.loss)(K.variable(y_test), K.variable(prediction))))
+    prediction = model.predict_generator(data_generator(x_test, y_test), 1,
+                                         max_queue_size=2, verbose=1)
+    gen_loss = model.evaluate_generator(data_generator(x_test, y_test, 50), 1,
+                                        max_queue_size=2)
+    pred_loss = K.eval(K.mean(losses.get(model.loss)(K.variable(y_test),
+                                                     K.variable(prediction))))
 
     assert(np.isclose(pred_loss, loss))
     assert(np.isclose(gen_loss, loss))
@@ -150,7 +156,7 @@ def test_sequential(in_tmpdir):
     model = Sequential()
     model.add(Dense(num_hidden, input_shape=(input_dim,)))
     model.add(Activation('relu'))
-    model.add(Dense(num_class))
+    model.add(Dense(num_classes))
     model.add(Activation('softmax'))
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
     model.load_weights(fname)
@@ -159,9 +165,11 @@ def test_sequential(in_tmpdir):
     nloss = model.evaluate(x_test, y_test, verbose=0)
     assert(loss == nloss)
 
-    # test serialization
+    # Test serialization
     config = model.get_config()
-    Sequential.from_config(config)
+    assert 'name' in config
+    new_model = Sequential.from_config(config)
+    assert new_model.weights  # Model should be built.
 
     model.summary()
     json_str = model.to_json()
@@ -171,14 +179,13 @@ def test_sequential(in_tmpdir):
     model_from_yaml(yaml_str)
 
 
-@keras_test
 def test_nested_sequential(in_tmpdir):
     (x_train, y_train), (x_test, y_test) = _get_test_data()
 
     inner = Sequential()
     inner.add(Dense(num_hidden, input_shape=(input_dim,)))
     inner.add(Activation('relu'))
-    inner.add(Dense(num_class))
+    inner.add(Dense(num_classes))
 
     middle = Sequential()
     middle.add(inner)
@@ -188,10 +195,13 @@ def test_nested_sequential(in_tmpdir):
     model.add(Activation('softmax'))
     model.compile(loss='categorical_crossentropy', optimizer='rmsprop')
 
-    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1, validation_data=(x_test, y_test))
-    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=2, validation_split=0.1)
+    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1,
+              validation_data=(x_test, y_test))
+    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=2,
+              validation_split=0.1)
     model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=0)
-    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1, shuffle=False)
+    model.fit(x_train, y_train, batch_size=batch_size, epochs=epochs, verbose=1,
+              shuffle=False)
 
     model.train_on_batch(x_train[:32], y_train[:32])
 
@@ -207,7 +217,7 @@ def test_nested_sequential(in_tmpdir):
     inner = Sequential()
     inner.add(Dense(num_hidden, input_shape=(input_dim,)))
     inner.add(Activation('relu'))
-    inner.add(Dense(num_class))
+    inner.add(Dense(num_classes))
 
     middle = Sequential()
     middle.add(inner)
@@ -222,7 +232,7 @@ def test_nested_sequential(in_tmpdir):
     nloss = model.evaluate(x_test, y_test, verbose=0)
     assert(loss == nloss)
 
-    # test serialization
+    # Test serialization
     config = model.get_config()
     Sequential.from_config(config)
 
@@ -234,7 +244,6 @@ def test_nested_sequential(in_tmpdir):
     model_from_yaml(yaml_str)
 
 
-@keras_test
 def test_sequential_count_params():
     input_dim = 20
     num_units = 10
@@ -257,7 +266,25 @@ def test_sequential_count_params():
     assert(n == model.count_params())
 
 
-@keras_test
+def test_nested_sequential_trainability():
+    input_dim = 20
+    num_units = 10
+    num_classes = 2
+
+    inner_model = Sequential()
+    inner_model.add(Dense(num_units, input_shape=(input_dim,)))
+
+    model = Sequential()
+    model.add(inner_model)
+    model.add(Dense(num_classes))
+
+    assert len(model.trainable_weights) == 4
+    inner_model.trainable = False
+    assert len(model.trainable_weights) == 2
+    inner_model.trainable = True
+    assert len(model.trainable_weights) == 4
+
+
 def test_rebuild_model():
     model = Sequential()
     model.add(Dense(128, input_shape=(784,)))
@@ -268,7 +295,6 @@ def test_rebuild_model():
     assert(model.get_layer(index=-1).output_shape == (None, 32))
 
 
-@keras_test
 def test_clone_functional_model():
     val_a = np.random.random((10, 4))
     val_b = np.random.random((10, 4))
@@ -276,11 +302,12 @@ def test_clone_functional_model():
 
     input_a = keras.Input(shape=(4,))
     input_b = keras.Input(shape=(4,))
-    dense_1 = keras.layers.Dense(4,)
-    dense_2 = keras.layers.Dense(4,)
+    dense_1 = keras.layers.Dense(4)
+    dense_2 = keras.layers.Dense(4)
 
     x_a = dense_1(input_a)
     x_a = keras.layers.Dropout(0.5)(x_a)
+    x_a = keras.layers.BatchNormalization()(x_a)
     x_b = dense_1(input_b)
     x_a = dense_2(x_a)
     outputs = keras.layers.add([x_a, x_b])
@@ -312,13 +339,13 @@ def test_clone_functional_model():
     new_model.train_on_batch(None, val_out)
 
 
-@keras_test
 def test_clone_sequential_model():
     val_a = np.random.random((10, 4))
     val_out = np.random.random((10, 4))
 
     model = keras.models.Sequential()
     model.add(keras.layers.Dense(4, input_shape=(4,)))
+    model.add(keras.layers.BatchNormalization())
     model.add(keras.layers.Dropout(0.5))
     model.add(keras.layers.Dense(4))
 
@@ -344,6 +371,98 @@ def test_clone_sequential_model():
         model, input_tensors=input_a)
     new_model.compile('rmsprop', 'mse')
     new_model.train_on_batch(None, val_out)
+
+
+def test_sequential_update_disabling():
+    val_a = np.random.random((10, 4))
+    val_out = np.random.random((10, 4))
+
+    model = keras.models.Sequential()
+    model.add(keras.layers.BatchNormalization(input_shape=(4,)))
+
+    model.trainable = False
+    assert not model.updates
+
+    model.compile('sgd', 'mse')
+    assert not model.updates
+
+    x1 = model.predict(val_a)
+    model.train_on_batch(val_a, val_out)
+    x2 = model.predict(val_a)
+    assert_allclose(x1, x2, atol=1e-7)
+
+    model.trainable = True
+    model.compile('sgd', 'mse')
+    assert model.updates
+
+    model.train_on_batch(val_a, val_out)
+    x2 = model.predict(val_a)
+    assert np.abs(np.sum(x1 - x2)) > 1e-5
+
+
+def test_sequential_deferred_build():
+    model = keras.models.Sequential()
+    model.add(keras.layers.Dense(3))
+    model.add(keras.layers.Dense(3))
+    model.compile('sgd', 'mse')
+
+    assert model.built is False
+    assert len(model.layers) == 2
+    assert len(model.weights) == 0
+
+    model.train_on_batch(
+        np.random.random((2, 4)), np.random.random((2, 3)))
+
+    assert model.built is True
+    assert len(model.layers) == 2
+    assert len(model.weights) == 4
+
+    # Test serialization
+    config = model.get_config()
+    assert 'name' in config
+    new_model = Sequential.from_config(config)
+    assert new_model.built is True
+    assert len(new_model.layers) == 2
+    assert len(new_model.weights) == 4
+
+
+def test_nested_sequential_deferred_build():
+    inner_model = keras.models.Sequential()
+    inner_model.add(keras.layers.Dense(3))
+    inner_model.add(keras.layers.Dense(3))
+
+    model = keras.models.Sequential()
+    model.add(inner_model)
+    model.add(keras.layers.Dense(5))
+    model.compile('sgd', 'mse')
+
+    assert inner_model.built is False
+    assert len(inner_model.layers) == 2
+    assert len(inner_model.weights) == 0
+    assert model.built is False
+    assert len(model.layers) == 2
+    assert len(model.weights) == 0
+
+    model.train_on_batch(
+        np.random.random((2, 4)), np.random.random((2, 5)))
+
+    assert inner_model.built is True
+    assert len(inner_model.layers) == 2
+    assert len(inner_model.weights) == 4
+    assert model.built is True
+    assert len(model.layers) == 2
+    assert len(model.weights) == 6
+
+    config = model.get_config()
+    new_model = keras.models.Sequential.from_config(config)
+    assert new_model.built is True
+    assert len(new_model.layers) == 2
+    assert len(new_model.weights) == 6
+
+    new_inner_model = new_model.layers[0]
+    assert new_inner_model.built is True
+    assert len(new_inner_model.layers) == 2
+    assert len(new_inner_model.weights) == 4
 
 
 if __name__ == '__main__':
